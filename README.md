@@ -6,12 +6,21 @@
 
 ## 安装
 
+### 方式一：uvx 直接运行（推荐）
+
 ```bash
-cd D:\project\mcp-ocr
-uv tool install .
+# 从 PyPI 安装并运行，无需 clone 仓库
+uvx mcp-ocr
 ```
 
-安装后 `mcp-ocr` 命令全局可用。代码更新后重新执行 `uv tool install .` 即可。
+### 方式二：本地开发安装
+
+```bash
+cd D:\project\mcp-ocr
+uv pip install -e .
+```
+
+安装后可通过 `python -m mcp_ocr.server` 启动。代码修改实时生效，无需重新安装。
 
 ## 配置
 
@@ -34,7 +43,24 @@ SILICONFLOW_API_KEY=sk-your-siliconflow-key
 {
   "mcpServers": {
     "mcp-ocr": {
-      "command": "mcp-ocr",
+      "command": "uvx",
+      "args": ["mcp-ocr"],
+      "env": {
+        "SILICONFLOW_API_KEY": "sk-your-key"
+      }
+    }
+  }
+}
+```
+
+本地开发安装后也可使用：
+
+```json
+{
+  "mcpServers": {
+    "mcp-ocr": {
+      "command": "python",
+      "args": ["-m", "mcp_ocr.server"],
       "env": {
         "SILICONFLOW_API_KEY": "sk-your-key"
       }
@@ -52,7 +78,7 @@ SILICONFLOW_API_KEY=sk-your-siliconflow-key
   "mcp": {
     "mcp-ocr": {
       "type": "local",
-      "command": ["mcp-ocr"],
+      "command": ["uvx", "mcp-ocr"],
       "environment": {
         "SILICONFLOW_API_KEY": "sk-your-key"
       }
@@ -67,7 +93,8 @@ SILICONFLOW_API_KEY=sk-your-siliconflow-key
 
 ```toml
 [mcp_servers.mcp-ocr]
-command = "mcp-ocr"
+command = "uvx"
+args = ["mcp-ocr"]
 
 [mcp_servers.mcp-ocr.env]
 SILICONFLOW_API_KEY = "sk-your-key"
@@ -81,7 +108,8 @@ SILICONFLOW_API_KEY = "sk-your-key"
 {
   "mcpServers": {
     "mcp-ocr": {
-      "command": "mcp-ocr",
+      "command": "uvx",
+      "args": ["mcp-ocr"],
       "env": {
         "SILICONFLOW_API_KEY": "sk-your-key"
       }
