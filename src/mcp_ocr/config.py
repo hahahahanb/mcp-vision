@@ -3,7 +3,7 @@ import os
 PROVIDER_PRESETS: dict[str, dict[str, str]] = {
     "siliconflow": {
         "base_url": "https://api.siliconflow.cn/v1",
-        "model": "Qwen/Qwen2.5-VL-72B-Instruct",
+        "model": "deepseek-ai/DeepSeek-OCR",
         "env_key": "SILICONFLOW_API_KEY",
         "protocol": "openai",
     },

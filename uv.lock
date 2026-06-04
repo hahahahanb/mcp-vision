@@ -336,7 +336,7 @@ cli = [
 ]
 
 [[package]]
-name = "mcp-ocr"
+name = "mcp-vision"
 version = "1.0.0"
 source = { editable = "." }
 dependencies = [

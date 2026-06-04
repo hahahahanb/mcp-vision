@@ -1,6 +1,9 @@
 import base64
 import httpx
+import logging
 from typing import Protocol
+
+logger = logging.getLogger("mcp-ocr")
 
 
 class VisionProvider(Protocol):
@@ -32,15 +35,16 @@ class OpenAICompatibleProvider:
             "max_tokens": 4096,
         }
 
+        url = f"{self.base_url}/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+        }
+
+        _log_request(url, headers, body)
+
         async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(
-                f"{self.base_url}/chat/completions",
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.api_key}",
-                },
-                json=body,
-            )
+            resp = await client.post(url, headers=headers, json=body)
 
         if resp.status_code != 200:
             raise RuntimeError(f"API 调用失败 ({resp.status_code}): {resp.text}")
@@ -96,16 +100,17 @@ class AnthropicProvider:
             ],
         }
 
+        url = "https://api.anthropic.com/v1/messages"
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": self.api_key,
+            "anthropic-version": "2023-06-01",
+        }
+
+        _log_request(url, headers, body)
+
         async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "Content-Type": "application/json",
-                    "x-api-key": self.api_key,
-                    "anthropic-version": "2023-06-01",
-                },
-                json=body,
-            )
+            resp = await client.post(url, headers=headers, json=body)
 
         if resp.status_code != 200:
             raise RuntimeError(f"Anthropic API 调用失败 ({resp.status_code}): {resp.text}")
@@ -120,3 +125,32 @@ class AnthropicProvider:
                 "total_tokens": data.get("usage", {}).get("input_tokens", 0) + data.get("usage", {}).get("output_tokens", 0),
             },
         }
+
+
+def _mask(value: str, keep: int = 4) -> str:
+    if len(value) <= keep * 2:
+        return "***"
+    return f"{value[:keep]}...{value[-keep:]}"
+
+
+def _log_request(url: str, headers: dict, body: dict):
+    safe_headers = {
+        k: _mask(v) if "key" in k.lower() or "auth" in k.lower() else v
+        for k, v in headers.items()
+    }
+
+    safe_body = _truncate_base64_in_body(body)
+
+    logger.debug(f"HTTP 请求 → {url}")
+    logger.debug(f"  headers: {safe_headers}")
+    logger.debug(f"  body: {safe_body}")
+
+
+def _truncate_base64_in_body(obj, max_len: int = 80):
+    if isinstance(obj, dict):
+        return {k: _truncate_base64_in_body(v, max_len) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_truncate_base64_in_body(v, max_len) for v in obj]
+    if isinstance(obj, str) and (obj.startswith("data:") or len(obj) > max_len):
+        return f"{obj[:max_len]}...({len(obj)} chars)"
+    return obj

@@ -1,3 +1,16 @@
+import logging
+import sys
+
+from dotenv import load_dotenv
+load_dotenv()
+
+logging.basicConfig(
+    stream=sys.stderr,
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("mcp-ocr")
+
 from mcp.server.fastmcp import FastMCP
 
 from mcp_ocr.config import load_config
@@ -19,6 +32,7 @@ def _get_provider():
         config = load_config()
         protocol = config.get("protocol", "openai")
         api_key = config.get("api_key") or ""
+        logger.info(f"初始化 Provider: {config.get('provider')} (protocol={protocol})")
 
         if protocol == "anthropic":
             _provider = AnthropicProvider(
@@ -41,6 +55,7 @@ def _get_provider():
                 api_key=api_key,
                 model=config.get("model", ""),
             )
+        logger.info(f"Provider 就绪: {type(_provider).__name__}")
     return _provider
 
 
@@ -69,9 +84,12 @@ async def analyze_image(image: str, prompt: str | None = None) -> str:
     try:
         image_data = _resolve_image(image)
         provider = _get_provider()
+        logger.info(f"analyze_image: image={image[:80]}{'...' if len(image) > 80 else ''}, prompt={prompt}")
         result = await provider.analyze(image_data, prompt or "请详细描述这张图片的内容")
+        logger.info(f"analyze_image 完成: model={result['model']}, text_len={len(result['text'])}")
         return _format_result("图像分析结果", result["text"], result["model"], result.get("usage"))
     except Exception as e:
+        logger.error(f"analyze_image 失败: {e}", exc_info=True)
         return f"图像分析失败: {e}"
 
 
@@ -87,9 +105,12 @@ async def ocr_extract(image: str, prompt: str | None = None) -> str:
         image_data = _resolve_image(image)
         provider = _get_provider()
         ocr_prompt = prompt or "请完整提取图片中的所有文字内容，保持原始排版格式。如果有代码，请用代码块包裹。"
+        logger.info(f"ocr_extract: image={image[:80]}{'...' if len(image) > 80 else ''}")
         result = await provider.analyze(image_data, ocr_prompt)
+        logger.info(f"ocr_extract 完成: text_len={len(result['text'])}")
         return _format_result("OCR 提取结果", result["text"], result["model"], result.get("usage"))
     except Exception as e:
+        logger.error(f"ocr_extract 失败: {e}", exc_info=True)
         return f"OCR 提取失败: {e}"
 
 
@@ -110,9 +131,12 @@ async def ocr_precise(image: str) -> str:
 
         image_data = _resolve_image(image)
         provider = _get_provider()
+        logger.info(f"ocr_precise: image={image[:80]}{'...' if len(image) > 80 else ''}")
         result = await provider.analyze(image_data, "")
+        logger.info(f"ocr_precise 完成: text_len={len(result['text'])}")
         return _format_result("精准 OCR 结果", result["text"], result["model"], result.get("usage"))
     except Exception as e:
+        logger.error(f"ocr_precise 失败: {e}", exc_info=True)
         return f"精准 OCR 失败: {e}"
 
 

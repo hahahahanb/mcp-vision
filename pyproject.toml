@@ -1,9 +1,14 @@
 [project]
-name = "mcp-ocr"
+name = "mcp-vision"
 version = "1.0.0"
-description = "MCP Server for image recognition - OCR and visual analysis via multimodal APIs"
+description = "MCP Server for image recognition - OCR and visual analysis via multimodal APIs, enables image understanding for text-only AI coding tools like Claude Code + DeepSeek"
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.11"
+authors = [
+    { name = "hahahahanb" },
+]
+urls.Repository = "https://github.com/hahahahanb/mcp-vision"
 dependencies = [
     "httpx>=0.28.1",
     "mcp[cli]>=1.27.2",
@@ -16,7 +21,7 @@ dev = [
 ]
 
 [project.scripts]
-mcp-ocr = "mcp_ocr.server:main"
+mcp-vision = "mcp_ocr.server:main"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
