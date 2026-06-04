@@ -8,8 +8,10 @@
 
 ```bash
 cd D:\project\mcp-ocr
-uv sync
+uv tool install .
 ```
+
+安装后 `mcp-ocr` 命令全局可用。代码更新后重新执行 `uv tool install .` 即可。
 
 ## 配置
 
@@ -32,8 +34,7 @@ SILICONFLOW_API_KEY=sk-your-siliconflow-key
 {
   "mcpServers": {
     "mcp-ocr": {
-      "command": "uv",
-      "args": ["--directory", "D:\\project\\mcp-ocr", "run", "python", "-m", "mcp_ocr.server"],
+      "command": "mcp-ocr",
       "env": {
         "SILICONFLOW_API_KEY": "sk-your-key"
       }
@@ -51,7 +52,7 @@ SILICONFLOW_API_KEY=sk-your-siliconflow-key
   "mcp": {
     "mcp-ocr": {
       "type": "local",
-      "command": ["uv", "--directory", "D:\\project\\mcp-ocr", "run", "python", "-m", "mcp_ocr.server"],
+      "command": ["mcp-ocr"],
       "environment": {
         "SILICONFLOW_API_KEY": "sk-your-key"
       }
@@ -66,8 +67,7 @@ SILICONFLOW_API_KEY=sk-your-siliconflow-key
 
 ```toml
 [mcp_servers.mcp-ocr]
-command = "uv"
-args = ["--directory", "D:\\project\\mcp-ocr", "run", "python", "-m", "mcp_ocr.server"]
+command = "mcp-ocr"
 
 [mcp_servers.mcp-ocr.env]
 SILICONFLOW_API_KEY = "sk-your-key"
@@ -81,8 +81,7 @@ SILICONFLOW_API_KEY = "sk-your-key"
 {
   "mcpServers": {
     "mcp-ocr": {
-      "command": "uv",
-      "args": ["--directory", "D:\\project\\mcp-ocr", "run", "python", "-m", "mcp_ocr.server"],
+      "command": "mcp-ocr",
       "env": {
         "SILICONFLOW_API_KEY": "sk-your-key"
       }
