@@ -1,3 +1,5 @@
+
+
 # MCP-VISION
 
 为 Claude Code、Codex CLI、OpenCode 等 AI 编程工具补齐图像识别能力的 MCP Server。
@@ -77,7 +79,7 @@ SILICONFLOW_API_KEY=sk-your-key
 ```toml
 [mcp_servers.mcp-vision]
 command = "uvx"
-args = ["mcp-ocr"]
+args = ["mcp-vision"]
 
 [mcp_servers.mcp-vision.env]
 SILICONFLOW_API_KEY = "sk-your-key"
