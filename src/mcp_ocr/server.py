@@ -16,11 +16,18 @@ from mcp.server.fastmcp import FastMCP
 from mcp_ocr.config import load_config
 from mcp_ocr.provider import OpenAICompatibleProvider, AnthropicProvider
 from mcp_ocr.traditional_ocr import BaiduOCRProvider, TencentOCRProvider
-from mcp_ocr.image_utils import validate_image_path, read_file_as_base64, is_url
+from mcp_ocr.image_utils import (
+    ImageInput,
+    is_url,
+    normalize_images,
+    read_file_as_base64,
+    read_url_as_base64,
+    validate_image_path,
+)
 
 mcp = FastMCP(
     "mcp-ocr",
-    instructions="图像识别服务。提供图片分析（analyze_image）、文字提取（ocr_extract）和精准 OCR（ocr_precise）工具。支持本地文件路径和远程 URL。支持硅基流动/阿里/火山/OpenAI/Anthropic/百度OCR/腾讯云OCR。",
+    instructions="图像识别服务。提供图片分析（analyze_image）、文字提取（ocr_extract）和精准 OCR（ocr_precise）工具。image 支持单个本地文件路径/远程 URL 或有序列表。支持硅基流动/阿里/火山/OpenAI/Anthropic/百度OCR/腾讯云OCR。",
 )
 
 _provider = None
@@ -66,6 +73,23 @@ def _resolve_image(image: str) -> str:
     return read_file_as_base64(image)
 
 
+def _resolve_images(image: ImageInput) -> list[str]:
+    return [_resolve_image(item) for item in normalize_images(image)]
+
+
+async def _resolve_precise_images(images: list[str]) -> list[str]:
+    resolved = []
+    for image in images:
+        resolved.append(await read_url_as_base64(image) if is_url(image) else image)
+    return resolved
+
+
+async def _analyze_images(provider, images: list[str], prompt: str) -> dict:
+    if len(images) > 1 and isinstance(provider, (BaiduOCRProvider, TencentOCRProvider)):
+        raise ValueError("传统 OCR Provider 的多图输入请使用 ocr_precise 工具")
+    return await provider.analyze(images[0] if len(images) == 1 else images, prompt)
+
+
 def _format_result(title: str, text: str, model: str, usage: dict | None) -> str:
     lines = [f"## {title}", "", text, "", "---", f"模型: {model}"]
     if usage:
@@ -74,18 +98,22 @@ def _format_result(title: str, text: str, model: str, usage: dict | None) -> str
 
 
 @mcp.tool()
-async def analyze_image(image: str, prompt: str | None = None) -> str:
-    """分析图片内容。支持本地文件路径和远程 URL。可用于图像描述、视觉问答、图表分析等场景。
+async def analyze_image(image: ImageInput, prompt: str | None = None) -> str:
+    """分析一张或多张图片。支持本地文件路径、远程 URL 或其有序列表。
 
     Args:
-        image: 图片路径（本地绝对路径）或远程 URL
-        prompt: 分析提示词，描述你希望如何分析这张图片。默认详细描述图片内容
+        image: 单张图片路径/URL，或按顺序排列的图片路径/URL 列表
+        prompt: 分析提示词。默认逐张描述；多图时也会概括图片间的关联
     """
     try:
-        image_data = _resolve_image(image)
+        image_data = _resolve_images(image)
         provider = _get_provider()
-        logger.info(f"analyze_image: image={image[:80]}{'...' if len(image) > 80 else ''}, prompt={prompt}")
-        result = await provider.analyze(image_data, prompt or "请详细描述这张图片的内容")
+        logger.info(f"analyze_image: image_count={len(image_data)}, prompt={prompt}")
+        default_prompt = (
+            "请逐张详细描述这些图片的内容，并指出图片之间的关联（如有）。"
+            if len(image_data) > 1 else "请详细描述这张图片的内容"
+        )
+        result = await _analyze_images(provider, image_data, prompt or default_prompt)
         logger.info(f"analyze_image 完成: model={result['model']}, text_len={len(result['text'])}")
         return _format_result("图像分析结果", result["text"], result["model"], result.get("usage"))
     except Exception as e:
@@ -94,19 +122,22 @@ async def analyze_image(image: str, prompt: str | None = None) -> str:
 
 
 @mcp.tool()
-async def ocr_extract(image: str, prompt: str | None = None) -> str:
-    """从图片或 PDF 中提取文字（OCR）。适合识别截图、文档、代码中的文本内容。
+async def ocr_extract(image: ImageInput, prompt: str | None = None) -> str:
+    """从一张或多张图片/PDF 中提取文字（OCR）。
 
     Args:
-        image: 图片或 PDF 文件路径（本地绝对路径）或远程 URL
-        prompt: OCR 提示词。默认提取并格式化所有文字内容
+        image: 单张图片路径/URL，或按顺序排列的图片路径/URL 列表
+        prompt: OCR 提示词。默认按图片顺序逐张提取并分段整理文字
     """
     try:
-        image_data = _resolve_image(image)
+        image_data = _resolve_images(image)
         provider = _get_provider()
-        ocr_prompt = prompt or "请完整提取图片中的所有文字内容，保持原始排版格式。如果有代码，请用代码块包裹。"
-        logger.info(f"ocr_extract: image={image[:80]}{'...' if len(image) > 80 else ''}")
-        result = await provider.analyze(image_data, ocr_prompt)
+        ocr_prompt = prompt or (
+            "请按输入顺序逐张提取所有图片中的文字并分别分段，保持原始排版格式。如果有代码，请用代码块包裹。"
+            if len(image_data) > 1 else "请完整提取图片中的所有文字内容，保持原始排版格式。如果有代码，请用代码块包裹。"
+        )
+        logger.info(f"ocr_extract: image_count={len(image_data)}")
+        result = await _analyze_images(provider, image_data, ocr_prompt)
         logger.info(f"ocr_extract 完成: text_len={len(result['text'])}")
         return _format_result("OCR 提取结果", result["text"], result["model"], result.get("usage"))
     except Exception as e:
@@ -115,13 +146,13 @@ async def ocr_extract(image: str, prompt: str | None = None) -> str:
 
 
 @mcp.tool()
-async def ocr_precise(image: str) -> str:
-    """使用传统 OCR 引擎精准提取图片中的文字（返回结构化结果，含文字坐标和置信度）。
+async def ocr_precise(image: ImageInput) -> str:
+    """使用传统 OCR 引擎精准提取一张或多张图片中的文字。
     需要配置百度 OCR 或腾讯云 OCR 作为 Provider。
     适合需要精确文字位置信息的场景（如发票、卡证、表格）。
 
     Args:
-        image: 图片文件路径（本地绝对路径）或远程 URL
+        image: 单张图片路径/URL，或按顺序排列的图片路径/URL 列表
     """
     try:
         config = load_config()
@@ -129,12 +160,31 @@ async def ocr_precise(image: str) -> str:
         if protocol not in ("baidu_ocr", "tencent_ocr"):
             return "ocr_precise 工具需要配置传统 OCR Provider（百度或腾讯云）。请设置 MCP_OCR_PROVIDER=baidu_ocr 或 tencent_ocr。"
 
-        image_data = _resolve_image(image)
+        image_data = await _resolve_precise_images(_resolve_images(image))
         provider = _get_provider()
-        logger.info(f"ocr_precise: image={image[:80]}{'...' if len(image) > 80 else ''}")
-        result = await provider.analyze(image_data, "")
-        logger.info(f"ocr_precise 完成: text_len={len(result['text'])}")
-        return _format_result("精准 OCR 结果", result["text"], result["model"], result.get("usage"))
+        logger.info(f"ocr_precise: image_count={len(image_data)}")
+
+        results = []
+        for image_item in image_data:
+            results.append(await provider.analyze(image_item, ""))
+
+        if len(results) == 1:
+            result = results[0]
+            logger.info(f"ocr_precise 完成: text_len={len(result['text'])}")
+            return _format_result("精准 OCR 结果", result["text"], result["model"], result.get("usage"))
+
+        sections = []
+        for index, result in enumerate(results, start=1):
+            section = f"### 图片 {index}\n\n{result['text']}"
+            usage = result.get("usage") or {}
+            if usage:
+                stats = " / ".join(f"{key}: {value}" for key, value in usage.items())
+                section += f"\n\n识别统计: {stats}"
+            sections.append(section)
+
+        combined_text = "\n\n".join(sections)
+        logger.info(f"ocr_precise 完成: image_count={len(results)}, text_len={len(combined_text)}")
+        return _format_result("精准 OCR 结果", combined_text, results[0]["model"], None)
     except Exception as e:
         logger.error(f"ocr_precise 失败: {e}", exc_info=True)
         return f"精准 OCR 失败: {e}"

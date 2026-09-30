@@ -1,6 +1,14 @@
 import pytest
 from pathlib import Path
-from mcp_ocr.image_utils import is_supported_format, validate_image_path, read_file_as_base64, is_url
+import httpx
+from mcp_ocr.image_utils import (
+    is_supported_format,
+    validate_image_path,
+    read_file_as_base64,
+    is_url,
+    normalize_images,
+    read_url_as_base64,
+)
 
 
 class TestIsSupportedFormat:
@@ -54,3 +62,70 @@ class TestIsUrl:
         assert is_url("/path/to/file.png") is False
         assert is_url("C:\\Users\\test.png") is False
         assert is_url("just some text") is False
+
+
+class TestNormalizeImages:
+    def test_accepts_a_single_image_or_an_ordered_list(self):
+        assert normalize_images("first.png") == ["first.png"]
+        assert normalize_images(["first.png", "https://example.com/second.png"]) == [
+            "first.png",
+            "https://example.com/second.png",
+        ]
+
+    def test_rejects_empty_lists_and_invalid_items(self):
+        with pytest.raises(ValueError, match="至少需要提供一张图片"):
+            normalize_images([])
+        with pytest.raises(ValueError, match="不能为空"):
+            normalize_images(["first.png", ""])
+        with pytest.raises(ValueError, match="必须是字符串"):
+            normalize_images(["first.png", 2])
+
+
+class TestReadUrlAsBase64:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("headers", [{"content-type": "image/png; charset=binary"}, {}])
+    async def test_returns_data_uri_and_checks_content_type(self, headers, monkeypatch):
+        requests = []
+        def handler(request):
+            requests.append(request)
+            return httpx.Response(200, headers=headers, content=b"image bytes")
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: client)
+        result = await read_url_as_base64("https://example.com/image.png")
+        assert result == "data:image/png;base64,aW1hZ2UgYnl0ZXM="
+        assert len(requests) == 1
+        assert str(requests[0].url) == "https://example.com/image.png"
+
+    @pytest.mark.asyncio
+    async def test_rejects_non_image_url_content(self, monkeypatch):
+        client = httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, headers={"content-type": "text/html"}, content=b"<html />")
+        ))
+        monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: client)
+        with pytest.raises(ValueError, match="远程内容类型不支持"):
+            await read_url_as_base64("https://example.com/not-an-image")
+
+    @pytest.mark.asyncio
+    async def test_stops_reading_and_closes_stream_when_size_limit_is_exceeded(self, monkeypatch):
+        from mcp_ocr import image_utils
+        consumed = []
+        closed = []
+
+        class ImageStream(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                for chunk in (b"123", b"456", b"789"):
+                    consumed.append(chunk)
+                    yield chunk
+
+            async def aclose(self):
+                closed.append(True)
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, headers={"content-type": "image/png"}, stream=ImageStream())
+        ))
+        monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: client)
+        monkeypatch.setattr(image_utils, "MAX_FILE_SIZE", 4)
+        with pytest.raises(ValueError, match="图片过大"):
+            await read_url_as_base64("https://example.com/large.png")
+        assert consumed == [b"123", b"456"]
+        assert closed == [True]

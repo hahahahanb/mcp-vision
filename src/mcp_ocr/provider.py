@@ -1,13 +1,15 @@
-import base64
-import httpx
 import logging
 from typing import Protocol
+
+import httpx
+
+from mcp_ocr.image_utils import ImageInput, normalize_images, read_url_as_base64
 
 logger = logging.getLogger("mcp-ocr")
 
 
 class VisionProvider(Protocol):
-    async def analyze(self, image: str, prompt: str) -> dict: ...
+    async def analyze(self, image: ImageInput, prompt: str) -> dict: ...
 
 
 class OpenAICompatibleProvider:
@@ -18,18 +20,26 @@ class OpenAICompatibleProvider:
         self.api_key = api_key
         self.model = model
 
-    async def analyze(self, image: str, prompt: str) -> dict:
-        image_url = image if image.startswith(("data:", "http")) else f"data:image/png;base64,{image}"
+    async def analyze(self, image: ImageInput, prompt: str) -> dict:
+        images = normalize_images(image)
+        content = []
+        for index, image_data in enumerate(images, start=1):
+            if len(images) > 1:
+                content.append({"type": "text", "text": f"图片 {index}："})
+            image_url = (
+                image_data
+                if image_data.startswith(("data:", "http"))
+                else f"data:image/png;base64,{image_data}"
+            )
+            content.append({"type": "image_url", "image_url": {"url": image_url}})
+        content.append({"type": "text", "text": prompt})
 
         body = {
             "model": self.model,
             "messages": [
                 {
                     "role": "user",
-                    "content": [
-                        {"type": "image_url", "image_url": {"url": image_url}},
-                        {"type": "text", "text": prompt},
-                    ],
+                    "content": content,
                 }
             ],
             "max_tokens": 4096,
@@ -64,40 +74,21 @@ class AnthropicProvider:
         self.api_key = api_key
         self.model = model
 
-    async def analyze(self, image: str, prompt: str) -> dict:
-        if image.startswith("data:"):
-            prefix, data = image.split(",", 1)
-            media_type = prefix.split(":")[1].split(";")[0]
-            image_block = {
-                "type": "image",
-                "source": {"type": "base64", "media_type": media_type, "data": data},
-            }
-        elif image.startswith("http"):
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.get(image)
-                if resp.status_code != 200:
-                    raise RuntimeError(f"下载图片失败 ({resp.status_code})")
-                content_type = resp.headers.get("content-type", "image/png")
-                image_block = {
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": content_type,
-                        "data": base64.b64encode(resp.content).decode("utf-8"),
-                    },
-                }
-        else:
-            raise ValueError("Anthropic provider 需要 data URI 或 URL 图片输入")
+    async def analyze(self, image: ImageInput, prompt: str) -> dict:
+        images = normalize_images(image)
+        content = []
+
+        for index, image_data in enumerate(images, start=1):
+            if len(images) > 1:
+                content.append({"type": "text", "text": f"图片 {index}："})
+            content.append(await _anthropic_image_block(image_data))
+
+        content.append({"type": "text", "text": prompt})
 
         body = {
             "model": self.model,
             "max_tokens": 4096,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [image_block, {"type": "text", "text": prompt}],
-                }
-            ],
+            "messages": [{"role": "user", "content": content}],
         }
 
         url = "https://api.anthropic.com/v1/messages"
@@ -125,6 +116,21 @@ class AnthropicProvider:
                 "total_tokens": data.get("usage", {}).get("input_tokens", 0) + data.get("usage", {}).get("output_tokens", 0),
             },
         }
+
+
+async def _anthropic_image_block(image: str) -> dict:
+    if image.startswith("http"):
+        image = await read_url_as_base64(image)
+
+    if image.startswith("data:"):
+        prefix, data = image.split(",", 1)
+        media_type = prefix.split(":")[1].split(";")[0]
+        return {
+            "type": "image",
+            "source": {"type": "base64", "media_type": media_type, "data": data},
+        }
+
+    raise ValueError("Anthropic provider 需要 data URI 或 URL 图片输入")
 
 
 def _mask(value: str, keep: int = 4) -> str:
